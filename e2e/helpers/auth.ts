@@ -1,6 +1,19 @@
 import { Page } from '@playwright/test';
 
+const REQUIRED_REGISTER_FIELDS = ['username', 'email', 'password'] as const;
+type RegisterField = (typeof REQUIRED_REGISTER_FIELDS)[number];
+
+function assertNonEmpty(value: string | undefined, fieldName: RegisterField): void {
+  if (!value || value.trim() === '') {
+    throw new Error(`Registration helper requires a non-empty value for field: ${fieldName}`);
+  }
+}
+
 export async function register(page: Page, username: string, email: string, password: string) {
+  assertNonEmpty(username, 'username');
+  assertNonEmpty(email, 'email');
+  assertNonEmpty(password, 'password');
+
   await page.goto('/register', { waitUntil: 'load' });
   await page.fill('input[name="username"]', username);
   await page.fill('input[name="email"]', email);
@@ -50,9 +63,16 @@ export async function logout(page: Page) {
 
 export function generateUniqueUser() {
   const timestamp = Date.now();
-  return {
+
+  const user = {
     username: `testuser${timestamp}`,
     email: `test${timestamp}@example.com`,
     password: 'password123',
   };
+
+  for (const field of REQUIRED_REGISTER_FIELDS) {
+    assertNonEmpty(user[field], field);
+  }
+
+  return user;
 }

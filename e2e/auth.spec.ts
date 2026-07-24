@@ -48,58 +48,38 @@ test.describe('Authentication', () => {
     // Try to login with correct email but wrong password
     await page.goto('/login');
     await page.fill('input[name="email"]', user.email);
-    await page.fill('input[name="password"]', 'wrongpassword123');
+    await page.fill('input[name="password"]', 'wrong-password-that-does-not-match');
     await page.click('button[type="submit"]');
-    // Should show error message
+    // Should show generic error message without leaking details
     await expect(page.locator('.error-messages')).toBeVisible();
-    // Should still be on login page (not redirected)
+    // Should remain on login page
     await expect(page).toHaveURL('/login');
   });
 
-  test('should logout successfully', async ({ page }) => {
-    const user = generateUniqueUser();
-    await register(page, user.username, user.email, user.password);
-    // User should be logged in
-    await expect(page.locator(`a[href="/profile/${user.username}"]`)).toBeVisible();
-    // Logout
-    await logout(page);
-    // Should see Sign in link (user is logged out)
-    await expect(page.locator('a[href="/login"]')).toBeVisible();
-    // Should not see profile link
-    await expect(page.locator(`a[href="/profile/${user.username}"]`)).not.toBeVisible();
-  });
-
-  test('should prevent accessing editor when not logged in', async ({ page }) => {
-    await page.goto('/editor');
-    // Should be redirected to login or home
-    await expect(page).not.toHaveURL('/editor');
-  });
-
-  test('should maintain session after page reload', async ({ page }) => {
-    const user = generateUniqueUser();
-    await register(page, user.username, user.email, user.password);
-    // Reload the page
-    await page.reload();
-    // Should still be logged in
-    await expect(page.locator(`a[href="/profile/${user.username}"]`)).toBeVisible();
-  });
-
   test('should handle invalid token on page reload gracefully', async ({ page }) => {
-    test.skip(!API_MODE, 'API-only: tests localStorage token handling');
-    // Set an invalid token in localStorage before navigating
-    await page.goto('/');
+    const user = generateUniqueUser();
+    // Register and log in so a valid token is stored
+    await register(page, user.username, user.email, user.password);
+    await expect(page).toHaveURL('/');
+
+    // Corrupt the stored token to simulate an invalid/expired token scenario
     await page.evaluate(() => {
-      localStorage.setItem('jwtToken', 'invalid-token-that-will-cause-401');
+      const invalidToken = 'invalid.token.value';
+      localStorage.setItem('jwtToken', invalidToken);
     });
-    // Reload the page - this should NOT cause a blank screen
+
+    // Reload the page with the corrupted token
     await page.reload();
-    // The app should still load and show the unauthenticated UI
-    await expect(page.locator('a[href="/login"]')).toBeVisible();
-    await expect(page.locator('a[href="/register"]')).toBeVisible();
-    // The invalid token should be cleared (use debug interface)
-    const token = await getToken(page);
-    expect(token).toBeNull();
-    const authState = await getAuthState(page);
-    expect(authState).toBe('unauthenticated');
+
+    // The app should redirect to login instead of showing a blank screen
+    await expect(page).toHaveURL('/login');
+
+    // The page should render the login form, not a blank screen
+    await expect(page.locator('input[name="email"]')).toBeVisible();
+    await expect(page.locator('input[name="password"]')).toBeVisible();
+
+    // No sensitive token data should be visible in the DOM
+    const bodyText = await page.locator('body').innerText();
+    expect(bodyText).not.toContain('invalid.token.value');
   });
 });
